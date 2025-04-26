@@ -46,6 +46,34 @@ class Bot(object):
                 pass
             except aiohttp.client_exceptions.ClientOSError as e:
                 await asyncio.sleep(3 + randint(0, 9))
+    
+    async def dummy_data(self, data):
+        return {"ok":True,"result":
+               [{"update_id":893056107,
+                "message":
+                    {"message_id":3597,
+                     "from":
+                     {"id":data,
+                      "is_bot":False,
+                      "first_name":"decaf",
+                      "username":"omegapoggers",
+                      "language_code":"en"},
+                      "chat":
+                      {"id":data,
+                       "first_name":"decaf",
+                       "username":"omegapoggers",
+                       "type":"private"},
+                       "date":1745357411,
+                       "text":"/alert",
+                       "entities":
+                       [{"offset":0,
+                         "length":6,
+                         "type":"bot_command"}
+                         ]
+                    }
+                }
+            ]
+            }
 
     # Logging method
     @staticmethod
@@ -99,6 +127,8 @@ class Bot(object):
 
     @staticmethod
     def get_sender_id(data):
+        if type(data).__name__ == 'int':
+            return data
         if 'edited_message' in data['result'][0]:
             if 'type' in data['result'][0]['edited_message']['chat'] == 'group':
                 return data['result'][0]['edited_message']['from']['id']
@@ -437,3 +467,6 @@ class Bot(object):
     def strict(self, data):
         return self.get_from_id(data) == config.ADMIN
     
+    async def alert(self, data):
+        for i in config.ADMINS:
+            await self.send_message(await self.dummy_data(i), data)
