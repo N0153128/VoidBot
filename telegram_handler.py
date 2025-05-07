@@ -1,3 +1,4 @@
+import aiohttp.client_exceptions
 import ujson
 import aiohttp
 import time
@@ -44,7 +45,7 @@ class Bot(object):
                 #     requests.get(bot.link + '/getUpdates?offset=' + str(offset))
             except (IndexError, KeyError, TypeError):
                 pass
-            except aiohttp.client_exceptions.ClientOSError as e:
+            except (aiohttp.client_exceptions.ClientOSError, aiohttp.client_exceptions.ServerDisconnectedError) as e:
                 await asyncio.sleep(3 + randint(0, 9))
     
     async def dummy_data(self, data):
