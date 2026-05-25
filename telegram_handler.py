@@ -4,6 +4,7 @@ import aiohttp
 import time
 import config
 from random import randint
+from typing import Optional
 import asyncio
 import logging
 import os
@@ -19,11 +20,21 @@ class Bot(object):
     def __init__(self, token):
         self.token = token
         self.link = f'https://api.telegram.org/bot{self.token}'
-        self.session = aiohttp.ClientSession()
+        self._timeout = aiohttp.ClientTimeout(total=60)
+        self._session: Optional[aiohttp.ClientSession] = None
         self.watchlist = {}
 
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(timeout=self._timeout)
+        return self._session
+
     async def get_all(self):
-        async with self.session.get(f'{self.link}/getUpdates') as response:
+        # timeout=30 enables long polling: Telegram holds the connection open for up
+        # to 30s and only returns when there's a new update, drastically reducing
+        # request volume compared to tight short-polling.
+        session = await self._get_session()
+        async with session.get(f'{self.link}/getUpdates', params={'timeout': 30}) as response:
             return await response.json()
         
 # defining the function that would look up for updates and put it in a queue. every message that bot receives gets
@@ -39,7 +50,8 @@ class Bot(object):
                                     self.get_chat_type(data), self.get_chat_id(data), self.get_username_or_first_name(data))
                 # if spam.checker(bot.get_chat_id(data)):
                 await queue.put(data)
-                await self.session.get(self.link + '/getUpdates?offset=' + str(offset))
+                session = await self._get_session()
+                await session.get(self.link + '/getUpdates?offset=' + str(offset))
                 await data_resolver(queue, admin=True)
                 # elif not spam.checker(bot.get_chat_id(data)):
                 #     requests.get(bot.link + '/getUpdates?offset=' + str(offset))
@@ -47,6 +59,9 @@ class Bot(object):
                 pass
             except (aiohttp.client_exceptions.ClientOSError, aiohttp.client_exceptions.ServerDisconnectedError) as e:
                 await asyncio.sleep(3 + randint(0, 9))
+            except (asyncio.TimeoutError, TimeoutError):
+                # Network stall / Telegram API unresponsive — back off and retry
+                await asyncio.sleep(5 + randint(0, 10))
     
     async def dummy_data(self, data):
         return {"ok":True,"result":
@@ -282,23 +297,24 @@ class Bot(object):
     # this method creates sendMessage requests that may contain inline keyboard, use get_chat_id or use clean data
     async def send_message(self, data, message, pure=None, inline=None, callback=None, chat_id=None):
         address = f'{self.link}/sendMessage'
+        session = await self._get_session()
         if inline is not None:
-            await self.session.post(address,
-                                    data=self.make_payload(ide=self.get_chat_id(data), text=message,
-                                                           inline=inline))
+            await session.post(address,
+                               data=self.make_payload(ide=self.get_chat_id(data), text=message,
+                                                      inline=inline))
         elif inline and callback is not None:
-            await self.session.post(address,
-                                    data=self.make_payload(ide=self.get_chat_id(data), text=message,
-                                                           inline=inline,
-                                                           callback=callback))
+            await session.post(address,
+                               data=self.make_payload(ide=self.get_chat_id(data), text=message,
+                                                      inline=inline,
+                                                      callback=callback))
         elif pure is not None:
-            await self.session.post(address, data=self.make_payload(data, message))
+            await session.post(address, data=self.make_payload(data, message))
         elif chat_id is not None:
-            await self.session.post(address, data=self.make_payload(chat_id, message))
+            await session.post(address, data=self.make_payload(chat_id, message))
         else:
             msg = self.prepare_message(message)
             for i in msg:
-                await self.session.post(address, data=self.make_payload(self.get_chat_id(data), i))
+                await session.post(address, data=self.make_payload(self.get_chat_id(data), i))
             #
             # await self.session.post(address,
             #                         data=self.make_payload(ide=self.get_chat_id(data), text=message,
@@ -386,7 +402,8 @@ class Bot(object):
     # this method deletes a message
     async def delete_message(self, data):
         url = f'{self.link}/deleteMessage'
-        await self.session.post(url, data=self.make_remove(self.get_chat_id(data), self.get_message_id(data)))
+        session = await self._get_session()
+        await session.post(url, data=self.make_remove(self.get_chat_id(data), self.get_message_id(data)))
 
     def print_debug(self):
         print(self.link)
@@ -407,7 +424,8 @@ class Bot(object):
 
     async def callback_response(self, data, text):
         callback = f'{self.link}/answerCallbackQuery'
-        await self.session.post(callback, data=self.make_charge(self.get_callback_id(data), text))
+        session = await self._get_session()
+        await session.post(callback, data=self.make_charge(self.get_callback_id(data), text))
 
     @staticmethod
     def get_callback_data(data):
@@ -417,8 +435,9 @@ class Bot(object):
 
     async def direct_message(self, chat_id, message):
         address = f'{self.link}/sendMessage'
-        await self.session.post(address,
-                                data=self.make_payload(ide=chat_id, text=message))
+        session = await self._get_session()
+        await session.post(address,
+                           data=self.make_payload(ide=chat_id, text=message))
 
     async def get_uptime(self, start, data):
         if self.get_chat_id(data) == 237892260:
@@ -463,7 +482,8 @@ class Bot(object):
 
     async def send_photo(self, data, link):
         address = f'{self.link}/sendPhoto'
-        await self.session.post(address, data=self.make_photo(self.get_chat_id(data), link))
+        session = await self._get_session()
+        await session.post(address, data=self.make_photo(self.get_chat_id(data), link))
 
     def strict(self, data):
         return self.get_from_id(data) == config.ADMIN

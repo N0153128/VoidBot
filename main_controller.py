@@ -40,6 +40,13 @@ async def command_cycle(data):
         pass
         # await send(data, motd.balance)
 
-loop2 = asyncio.get_event_loop()
-loop2.create_task(base.bot.loop_void(queue=base.queue, data_resolver=webapi_handler))
-loop2.run_forever()
+async def supervised_loop():
+    """Wraps loop_void so the event loop keeps running even if it crashes."""
+    while True:
+        try:
+            await base.bot.loop_void(queue=base.queue, data_resolver=webapi_handler)
+        except Exception as e:
+            print(f'[supervisor] loop_void crashed: {e!r} — restarting in 10s')
+            await asyncio.sleep(10)
+
+asyncio.run(supervised_loop())

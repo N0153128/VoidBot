@@ -2,7 +2,7 @@ peewee
 requests
 telegraph
 ujson
-aiohttp
-pytonapi
+aiohttp>=3.10.0
+pytonapi>=2.0.0
+pydantic>=2.0.0
 GitPython
-
